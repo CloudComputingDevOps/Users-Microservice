@@ -42,7 +42,7 @@ jobs:
         if: hashFiles('prisma/schema.prisma') != ''
         run: npx prisma generate
 
-      # Informativo: el codigo heredado tiene deuda de estilo (514 problemas).
+      # Informativo: el codigo heredado tiene deuda de estilo.
       # No bloquea el pipeline. Pendiente: limpiar y volverlo obligatorio.
       - name: Lint (informativo)
         continue-on-error: true
@@ -86,6 +86,8 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # Cada Dockerfile.prod recibe la URL de la base por un ARG distinto.
+      # Valores FALSOS: prisma generate no se conecta a la base de datos.
       - name: Construir y subir imagen
         uses: docker/build-push-action@v6
         with:
@@ -94,5 +96,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            DIRECT_URL_USERS_DB=postgresql://user:pass@localhost:5432/db
+            DIRECT_URL_ADMINISTRATIVE_DATA_DB=postgresql://user:pass@localhost:5432/db
+            DIRECT_URL_TRAJECTORY_DB=postgresql://user:pass@localhost:5432/db
           cache-from: type=gha
           cache-to: type=gha,mode=max
