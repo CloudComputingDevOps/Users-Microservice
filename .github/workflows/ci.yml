@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build y Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Valores FALSOS, solo para que pasen las validaciones de variables en los tests.
+    # Nunca pongas claves reales aqui.
+    env:
+      PORT: 3000
+      NATS_SERVERS: nats://localhost:4222
+      DATABASE_URL: postgresql://user:pass@localhost:5432/db
+      SUPABASE_URL: https://example.supabase.co
+      DATABASE_KEY: dummy
+      DATABASE_ADMIN_KEY: dummy
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar cliente Prisma (solo si el repo usa Prisma)
+        if: hashFiles('prisma/schema.prisma') != ''
+        run: npx prisma generate
+
+      # Informativo: el codigo heredado tiene deuda de estilo (514 problemas).
+      # No bloquea el pipeline. Pendiente: limpiar y volverlo obligatorio.
+      - name: Lint (informativo)
+        continue-on-error: true
+        run: npx eslint "{src,apps,libs,test}/**/*.ts"
+
+      - name: Tests
+        run: npm test -- --passWithNoTests
+
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: Imagen Docker
+    needs: build-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login en GHCR (solo si no es PR)
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calcular nombre y etiquetas de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Construir y subir imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./dockerfile.prod
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
