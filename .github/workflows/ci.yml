@@ -102,3 +102,49 @@ jobs:
             DIRECT_URL_TRAJECTORY_DB=postgresql://user:pass@localhost:5432/db
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  notify-cd:
+    name: Notificar CD centralizado
+    needs: docker
+    # Solo despliega cuando el cambio llega a main (no en develop ni en PR).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Enviar repository_dispatch
+        env:
+          GH_TOKEN: ${{ secrets.CD_DISPATCH_TOKEN }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          IMAGE_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          : "${GH_TOKEN:?Falta configurar CD_DISPATCH_TOKEN}"
+
+          # El nombre real del repo es p. ej. "Users-Microservice", asi que
+          # se aceptan los dos nombres (corto y con -microservice).
+          case "${REPO_NAME,,}" in
+            gateway) SERVICE=gateway ;;
+            users|users-microservice) SERVICE=users ;;
+            administrative-data|administrative-data-microservice) SERVICE=administrative-data ;;
+            trajectory|trajectory-microservice) SERVICE=trajectory ;;
+            *)
+              echo "Repositorio desconocido: $REPO_NAME"
+              exit 1
+              ;;
+          esac
+
+          IMAGE="ghcr.io/${IMAGE_REPO,,}"
+          TAG="sha-${COMMIT_SHA:0:7}"
+
+          gh api --method POST \
+            repos/CloudComputingDevOps/devops-platform/dispatches \
+            -f event_type=deploy-service \
+            -f "client_payload[service]=$SERVICE" \
+            -f "client_payload[image]=$IMAGE" \
+            -f "client_payload[tag]=$TAG"
+
+          echo "CD solicitado: $SERVICE -> $IMAGE:$TAG"
