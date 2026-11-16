@@ -216,6 +216,7 @@ export class UsersService {
     ]);
 
     return {
+      message: 'Usuarios: respuesta actualizada luego de CI/CD',
       data,
       meta: {
         total,
