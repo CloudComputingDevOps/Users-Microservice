@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -25,10 +24,6 @@ import {
 } from '@/src/employees/dto';
 import { supabase } from '@/src/lib/supabase/supabase';
 import { envs } from '@/src/config';
-import {
-  C_LEVEL_POSITION_IDS,
-  LEAD_POSITION_IDS,
-} from '@/src/employees/enums/position.enum';
 
 /*
 NotFoundException lanza automáticamente el error 404.
@@ -259,15 +254,6 @@ export class UsersService {
       );
     }
 
-    if (
-      !generateEmployeeQrDto.scannerIsAdmin &&
-      generateEmployeeQrDto.scannerEmployeeId !== employee.id_employee
-    ) {
-      throw new ForbiddenException(
-        'No tiene permisos para generar este código QR.',
-      );
-    }
-
     const expiresAt = new Date(Date.now() + this.employeeQrTtlSeconds * 1000);
     const qrToken = this.signEmployeeQrToken(employee.id_employee, expiresAt);
 
@@ -302,18 +288,14 @@ export class UsersService {
       );
     }
 
-    const visibilityLevel = this.resolveQrVisibilityLevel(
-      employee,
-      scanEmployeeQrDto,
-    );
     const enabled = employee.status === 'active';
 
     return {
       enabled,
       status: employee.status,
       message: enabled ? null : 'Employee is not currently enabled',
-      visibilityLevel,
-      employee: this.pickEmployeeQrFields(employee, visibilityLevel),
+      visibilityLevel: 'full',
+      employee,
     };
   }
 
@@ -380,66 +362,6 @@ export class UsersService {
 
   private base64UrlDecode(value: string): string {
     return Buffer.from(value, 'base64url').toString('utf8');
-  }
-
-  private resolveQrVisibilityLevel(
-    employee: { id_employee: number; id_manager: number | null },
-    scanner: ScanEmployeeQrDto,
-  ): 'full' | 'manager' | 'self' | 'basic' {
-    if (scanner.scannerIsAdmin) return 'full';
-    if (C_LEVEL_POSITION_IDS.includes(scanner.scannerPosition)) return 'full';
-    if (scanner.scannerEmployeeId === employee.id_employee) return 'self';
-    if (
-      scanner.scannerEmployeeId &&
-      scanner.scannerEmployeeId === employee.id_manager
-    )
-      return 'manager';
-    if (LEAD_POSITION_IDS.includes(scanner.scannerPosition)) return 'manager';
-
-    return 'basic';
-  }
-
-  private pickEmployeeQrFields(
-    employee: any,
-    visibilityLevel: 'full' | 'manager' | 'self' | 'basic',
-  ) {
-    if (visibilityLevel === 'full') return employee;
-
-    if (visibilityLevel === 'manager') {
-      return {
-        id_employee: employee.id_employee,
-        first_name: employee.first_name,
-        last_name: employee.last_name,
-        email: employee.email,
-        status: employee.status,
-        id_position: employee.id_position,
-        id_manager: employee.id_manager,
-        photo_url: employee.photo_url,
-      };
-    }
-
-    if (visibilityLevel === 'self') {
-      return {
-        id_employee: employee.id_employee,
-        first_name: employee.first_name,
-        last_name: employee.last_name,
-        age: employee.age,
-        email: employee.email,
-        code: employee.code,
-        status: employee.status,
-        id_position: employee.id_position,
-        photo_url: employee.photo_url,
-      };
-    }
-
-    return {
-      id_employee: employee.id_employee,
-      first_name: employee.first_name,
-      last_name: employee.last_name,
-      status: employee.status,
-      id_position: employee.id_position,
-      photo_url: employee.photo_url,
-    };
   }
 
   async findEmployeesByIds(ids: number[]) {
